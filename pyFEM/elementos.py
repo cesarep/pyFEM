@@ -108,28 +108,18 @@ class Elemento:
         return np.array([no.u[i] for no in self.nos for i in range(0,2)])
                 
 
-    def De(self):
+    def De(self, **kwargs):
         """
         Matriz constitutiva do Elemento Bidimensional
-
+        
+        Args:
+            **kwargs (dict): dicionario de parametros extras para o modelo, opcional.
+            
         Returns:
             float[][]: Matriz constitutiva.
 
         """
-        E = self.E
-        nu = self.nu
-        if(self.mat.EPT):
-            return (E/(1-nu**2))*np.array(
-                [[ 1,nu, 0],
-                 [nu, 1, 0],
-                 [ 0, 0, (1-nu)/2]]
-                , dtype='float32')
-        else:
-            return (E/((1-nu)*(1-2*nu)))*np.array(
-                [[1-nu,  nu, 0],
-                 [ nu ,1-nu, 0],
-                 [  0 ,  0 , (1-2*nu)/2]]
-                , dtype='float32')
+        return self.mat.De(**kwargs)
     
         
     def Ne(self, xi, yi):

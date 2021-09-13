@@ -185,7 +185,7 @@ class Solver:
         # declara os pontos
         nnos = len(self.mesh.nodes)
         f.write("POINTS %i double\n" % nnos)
-        np.savetxt(f, self.mesh.points ) #+ np.pad(self.U.reshape(-1, 2), ((0,0),(0,1))))
+        np.savetxt(f, self.mesh.points + np.pad(self.U.reshape(-1, 2), ((0,0),(0,1))))
         
         # declara as celulas        
         nelem = len(self.mesh.elementos)
