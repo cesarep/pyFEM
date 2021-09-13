@@ -42,6 +42,8 @@ class Node:
         
         self.u = np.array([0., 0.])
         
+        self.du = np.array([[0., 0.]])
+        
     def __repr__(self):
         return "Node #%i @ [%.2f, %.2f], F=[%.2f, %.2f] %s%s" % (self.id+1, self.x, self.y, *self.forcas, "x"*self.apoio[0], "y"*self.apoio[1])
         
@@ -152,6 +154,16 @@ class Elemento:
         """
         pass
     
+    def K_inc(self, n):
+        """
+        Definição genéria da matriz de rigidez do elemento na formulação incremental
+
+        Args:
+            n (int): passo do incremento
+
+        """
+        pass
+    
     
     
 class CST(Elemento):
@@ -206,7 +218,22 @@ class CST(Elemento):
     
     
     def Ke(self):
-        if(self.mat.EPT):
-            return self.mat.t*self.Ae*(self.Be().transpose() @ self.De() @ self.Be())
-        else:
-            return self.Ae*(self.Be().transpose() @ self.De() @ self.Be())
+        return (self.mat.t if self.mat.EPT else 1)*self.Ae*(self.B.transpose() @ self.De() @ self.B)
+
+        
+    def K_inc(self, n):
+        # recalcula 
+        x = [no.x + no.du[n][0] for no in self.nos]
+        y = [no.y + no.du[n][0] for no in self.nos]
+        
+        self.Ae = (x[1]*y[2] + x[0]*y[1] + x[2]*y[0] - x[1]*y[0] - x[0]*y[2] - x[2]*y[1])/2
+        self.a = [x[(i+1)%3]*y[(i+2)%3] - x[(i+2)%3]*y[(i+1)%3] for i in range(0, 3)]
+        self.b = [y[(i+1)%3] - y[(i+2)%3] for i in range(0, 3)]
+        self.c = [-x[(i+1)%3] +x[(i+2)%3] for i in range(0, 3)]
+        
+        # recalcula as matrizes com os abc's atualizados
+        Elemento.__init2__(self)
+        
+        return self.K
+        
+        

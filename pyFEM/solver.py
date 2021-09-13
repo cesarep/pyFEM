@@ -22,19 +22,12 @@ class Solver:
         Args:
             mesh (Malha): Malha de elementos.
 
-        Returns:
-            None.
-
         """
         self.mesh = mesh
         
     def calcular(self):
         """
         Resolve o sistema.
-
-        Returns:
-            None.
-
         """
         # 2 graus de liberdade por nó
         self.ngl = len(self.mesh.nodes)*2
@@ -90,15 +83,92 @@ class Solver:
             self.mesh.celldata['stress'][elem.id] = elem.stress
     
     
+    def calcularInc(self, npassos, filename):
+        """
+        Calcula o sistema de maneira incremental, aplicando a carga linearmente 
+        em npassos vezes, e exporta os resultados de cada passo
+
+        Args:
+            npassos (int): numero de passos de incremento de carga.
+            filename(string): nome do arquivo a ser exportado.
+
+        """
+        
+        self.passos = npassos
+        # 2 graus de liberdade por nó
+        self.ngl = len(self.mesh.nodes)*2
+        
+        # prepara os incrementos nos nos e separa os graus de liberdade Fixos e Livres
+        glF = []
+        glL = []
+        for no in self.mesh.nodes:
+                no.du = np.zeros((npassos, 2))
+                glF += [2*no.id + i for i in range(0,2) if no.apoio[i]]
+                glL += [2*no.id + i for i in range(0,2) if not no.apoio[i]]
+                
+        self.glF = glF
+        self.glL = glL
+
+        
+        self.U = np.zeros((self.ngl), dtype='float32')
+                
+        for n in range(0, npassos):
+            # prepara a matriz de rigidez global
+            self.Kg = np.zeros((self.ngl, self.ngl), dtype='float32')
+            self.dF = np.zeros((self.ngl), dtype='float32')
+            self.dU = np.zeros((self.ngl), dtype='float32')
+            
+            # itera por cada elemento
+            for elem in self.mesh.elementos:
+                # soma sua parcela de rigidez incremental
+                self.Kg[np.ix_(elem.gls, elem.gls)] += elem.K_inc(n)
+            
+            # aplica os incrementos de força dos nós
+            for no in self.mesh.nodes:
+                self.dF[2*no.id:2*no.id+2] = no.forcas*(n+1)/npassos
+                 
+            # Separando as submatrizes
+            KFF = self.Kg[np.ix_(glF, glF)]
+            KFL = self.Kg[np.ix_(glF, glL)]
+            KLL = self.Kg[np.ix_(glL, glL)]
+            
+            dFL = self.dF[np.ix_(glL)]
+            
+            # calcula os deslocamentos livres
+            self.dU[np.ix_(glL)] = linalg.solve(KLL, dFL)
+            
+            # calcula as reações de apoio
+            self.dF[np.ix_(glF)] = KFL @ self.dU[np.ix_(glL)] - self.dF[np.ix_(glF)]
+            
+            # aplica os resultados nos dicionarios de dados para exportalçao
+            self.mesh.pointdata['deslocamento'] = self.dU.reshape(-1, 2)
+            self.mesh.pointdata['forcas'] = self.dF.reshape(-1, 2)
+            
+            # repassa os deslocamentos calculados para cada nó para calculo dos ue's
+            for no in self.mesh.nodes:
+                no.du[n] = self.dU[2*no.id:2*no.id+2]
+                no.u += no.du[n]
+            
+            self.U += self.dU
+                
+            # prepara o campo de tensões
+            self.mesh.celldata['stress'] = np.zeros((len(self.mesh.elementos), 3))
+              
+            # itera pelos elementos calculando as tensões
+            for elem in self.mesh.elementos:
+                elem.stress = elem.D @ elem.B @ elem.ue()
+                self.mesh.celldata['stress'][elem.id] = elem.stress
+                
+            self.exportar(filename+".%i"%n)
+                
+            
+    
     def exportar(self, filename):
         """
         Gera um arquivo no formato VTK para visualização dos dados.
 
         Args:
             filename (string): Nome do arquivo, sem a extensão.
-
-        Returns:
-            None.
 
         """
         # cria o arquivo
@@ -115,7 +185,7 @@ class Solver:
         # declara os pontos
         nnos = len(self.mesh.nodes)
         f.write("POINTS %i double\n" % nnos)
-        np.savetxt(f, self.mesh.points)
+        np.savetxt(f, self.mesh.points ) #+ np.pad(self.U.reshape(-1, 2), ((0,0),(0,1))))
         
         # declara as celulas        
         nelem = len(self.mesh.elementos)
@@ -160,13 +230,3 @@ class Solver:
                     np.savetxt(f, val)
                     
         f.close()
-        
-        
-        
-            
-            
-        
-            
-            
-        
-        
