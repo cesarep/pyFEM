@@ -29,6 +29,12 @@ class Material:
         """
         self.E = E
         self.nu = nu
+        
+        # propriedades derivadas
+        self.G = E/(2*(1+nu))
+        self.K = E/(3*(1-2*nu))
+        self.lame = self.K-2*self.G/3
+        
         self.t = t
         self.EPT = (t > 0)
         

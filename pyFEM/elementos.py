@@ -12,6 +12,7 @@ Inclui as definições de nós e elementos.
 
 import numpy as np
 from .materiais import *
+from .integrador import gauss2d2, gauss2d3, gauss2dn
 
 class Node:
     def __init__(self, i, x, y = None):
@@ -28,26 +29,24 @@ class Node:
 
         """
         self.id = i
-        
+
         if isinstance(x, (tuple, list)):
             self.coord = np.array(x)
         else:
             self.coord = np.array([x, y])
-            
-        self.x = self.coord[0]
-        self.y = self.coord[1]
+
         self.forcas = np.array([0., 0.])
-        
+
         self.apoio = np.array([False, False])
-        
+
         self.u = np.array([0., 0.])
-        
+
         self.du = np.array([[0., 0.]])
-        
+
     def __repr__(self):
         return "Node #%i @ [%.2f, %.2f], F=[%.2f, %.2f] %s%s" % (self.id+1, self.x, self.y, *self.forcas, "x"*self.apoio[0], "y"*self.apoio[1])
-        
-        
+
+
 class Elemento:
     def __init__(self, i, mat: Material, nos):
         """
@@ -66,23 +65,27 @@ class Elemento:
         self.nos = nos
         # lista de graus de liberdade do elemento
         self.gls = [2*no.id + i for no in nos for i in range(0,2)]
-        
+
+        # área do elemento
+        self.Ae = None
+
         # tipo de célula, para exportação no VTK
-        self.vtkcelltype = 0
-        
-        # acumula as coordenadas nodais
-        self.x = [no.x for no in nos]
-        self.y = [no.y for no in nos]
-        
+        self.vtkcelltype = None
+
+        # matriz de coordenadas nodais
+        self.xe = np.array([no.coord for no in nos])
+
         # definiçao do material
         self.mat = mat
         self.E = mat.E
         self.nu = mat.nu
-        
-        # tensoes
-        self.sigma = np.array([0., 0., 0.])
-        
-        
+
+        # dicionario de parametros extras para leis constitutivas avançadas
+        self.matprops = {}
+
+        self.stress = np.array([0., 0., 0.])
+
+
     def __init2__(self):
         """
         Chamada após a inicialização do elemento, para armazenar os valores das
@@ -93,36 +96,95 @@ class Elemento:
 
         """
         self.D = self.De()
-        self.B = self.Be()
         self.K = self.Ke()
-        
-        
+
+        if self.vtkcelltype is None:
+            raise NotImplementedError("Tipo de célula VTK não definida")
+        self.K = self.Ke()
+        if self.Ae is None:
+            raise NotImplementedError("Àrea da célula não definida")
+
+
     def ue(self):
         """
-        Retonar os deslocamentos nodais do elemento
+        Retonar os deslocamentos nodais do elemento [u1, v1, u2, v2, ...]
 
         Returns:
             float[]: vetor de deslocamentos nodais.
 
         """
         return np.array([no.u[i] for no in self.nos for i in range(0,2)])
-                
+
+
+    def xe(self):
+        """
+        Retonar as coordenadas nodais do elemento [x1, y1, x2, y2, ...]
+
+        Returns:
+            float[]: vetor de coordenadas nodais.
+
+        """
+        return np.array([no.coord[i] for no in self.nos for i in range(0,2)])
+
 
     def De(self, **kwargs):
         """
         Matriz constitutiva do Elemento Bidimensional
-        
+
         Args:
             **kwargs (dict): dicionario de parametros extras para o modelo, opcional.
-            
+
         Returns:
             float[][]: Matriz constitutiva.
 
         """
         return self.mat.De(**kwargs)
-    
-        
-    def Ne(self, xi, yi):
+
+
+    def J(self, xi = 0, yi = 0):
+        """
+        Definição genérica da matriz Jacobiana
+
+        Args:
+            xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
+
+        Returns:
+            float[][]: Matriz Jacobiana.
+
+        """
+        return np.diag((1,1))
+
+
+    def detJ(self, xi = 0, yi = 0):
+        """
+        Determinante Jacobiano
+
+        Args:
+            xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
+
+        Returns:
+            float: Determinante da Matriz Jacobiana.
+
+        """
+        J = self.J(xi,yi)
+        return J[0,0]*J[1,1] - J[0,1]*J[1,0]
+
+    def invJ(self, xi = 0, yi = 0):
+        """
+        Inversa da matriz Jacobiana
+
+        Args:
+            xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
+
+        Returns:
+            float[][]: Matriz Jacobiana invertida.
+
+        """
+        J = self.J(xi,yi)
+        return np.array([[J[1,1], -J[0,1]], [-J[1, 0], J[0, 0]]])/self.detJ(xi, yi)
+
+
+    def Ne(self, xi = 0, yi = 0):
         """
         Definição genérica de um vetor de funções interpoladores.
 
@@ -130,20 +192,27 @@ class Elemento:
             xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
 
         """
-        pass
-    
-    def Be(self):
+        raise NotImplementedError("Função Interpoladora não definida")
+
+
+    def Be(self, xi = 0, yi = 0):
         """
         Definição genérica da matriz de derivadas das funções interpoladores
+
+        Args:
+            xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
+
         """
-        pass
-    
+        raise NotImplementedError("Matriz de derivadas não definida")
+
+
     def Ke(self):
         """
         Definição genérica da matriz de rigidez do elemento
         """
-        pass
-    
+        raise NotImplementedError("Matriz de rigidez não definida")
+
+
     def K_inc(self, n):
         """
         Definição genéria da matriz de rigidez do elemento na formulação incremental
@@ -152,78 +221,194 @@ class Elemento:
             n (int): passo do incremento
 
         """
-        pass
-    
-    
-    
+        raise NotImplementedError("Matriz de rigidez incremental não definida")
+
+
+    def Se(self, xi = 0, yi = 0):
+        """
+        Definição genérica do vetor de tensões.
+
+        Args:
+            xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
+
+        """
+        return self.D @ self.Be(xi, yi) @ self.ue()
+
+
+
 class CST(Elemento):
-    def __init__(self, i, mat, no1, no2, no3):
+    def __init__(self, i, mat, nos):
         """
         Define um elemento triangular linear de deformação constante CST.
 
         Args:
             i (int): id do elemento.
             mat (Material): Material do elemento.
-            no1 (Node): nó 1 do elemento.
-            no2 (Node): nó 2 do elemento.
-            no3 (Node): nó 3 do elemento.
-
-        Returns:
-            None.
+            nos (Nodes[3]): Lista com 3 nós para o elemento.
 
         """
         # inicializa o elemento genérico
-        Elemento.__init__(self, i, mat, [no1, no2, no3])
+        Elemento.__init__(self, i, mat, nos)
 
         # representação no padrão VTK do triangular linear
         self.vtkcelltype = 5
-        
+
         # calcula a área do triangulo
-        x = self.x
-        y = self.y
+        x = self.xe.transpose()[0]
+        y = self.xe.transpose()[1]
         self.Ae = (x[1]*y[2] + x[0]*y[1] + x[2]*y[0] - x[1]*y[0] - x[0]*y[2] - x[2]*y[1])/2
-        
+
         # calcula os parametros a1, b1, c1, a2, b2 ....
         self.a = [x[(i+1)%3]*y[(i+2)%3] - x[(i+2)%3]*y[(i+1)%3] for i in range(0, 3)]
         self.b = [y[(i+1)%3] - y[(i+2)%3] for i in range(0, 3)]
         self.c = [-x[(i+1)%3] +x[(i+2)%3] for i in range(0, 3)]
-        
+
         # atribui as variaveis finais
         Elemento.__init2__(self)
-    
-        
-        
+
+
+
     def Ne(self, xi, yi):
         N = [(self.a[i] + self.b[i]*xi + self.c[i]*yi)/(2*self.Ae) for i in range(0,3)]
         return np.array([[N[0], 0, N[1], 0, N[2], 0],
                          [0, N[0], 0, N[1], 0, N[2]]], dtype='float32')
 
-        
-    def Be(self):
+
+    def Be(self, xi = 0, yi = 0):
         return (1/(2*self.Ae))*np.array(
             [[self.b[0], 0, self.b[1], 0, self.b[2], 0],
              [0, self.c[0], 0, self.c[1], 0, self.c[2]],
              [self.c[0], self.b[0], self.c[1], self.b[1], self.c[2], self.b[2]]]
             , dtype='float32')
-    
-    
-    def Ke(self):
-        return (self.mat.t if self.mat.EPT else 1)*self.Ae*(self.B.transpose() @ self.De() @ self.B)
 
-        
+
+    def Ke(self):
+        return (self.mat.t if self.mat.EPT else 1)*self.Ae*(self.Be().transpose() @ self.D @ self.Be())
+
+
     def K_inc(self, n):
-        # recalcula 
-        x = [no.x + no.du[n][0] for no in self.nos]
-        y = [no.y + no.du[n][0] for no in self.nos]
-        
+        # recalcula
+        x = [no.coord[0] + no.du[n][0] for no in self.nos]
+        y = [no.coord[1] + no.du[n][1] for no in self.nos]
+
         self.Ae = (x[1]*y[2] + x[0]*y[1] + x[2]*y[0] - x[1]*y[0] - x[0]*y[2] - x[2]*y[1])/2
         self.a = [x[(i+1)%3]*y[(i+2)%3] - x[(i+2)%3]*y[(i+1)%3] for i in range(0, 3)]
         self.b = [y[(i+1)%3] - y[(i+2)%3] for i in range(0, 3)]
         self.c = [-x[(i+1)%3] +x[(i+2)%3] for i in range(0, 3)]
-        
+
         # recalcula as matrizes com os abc's atualizados
         Elemento.__init2__(self)
-        
+
         return self.K
-        
-        
+
+
+class ORTH4(Elemento):
+    def __init__(self, i, mat, nos):
+        """
+        Define um elemento retangular ortogonal linear de 4 nós.
+
+        Args:
+            i (int): id do elemento.
+            mat (Material): Material do elemento.
+            nos (Nodes[4]): Lista com os nós do elemento.
+
+        """
+        # inicializa o elemento genérico
+        Elemento.__init__(self, i, mat, nos)
+
+        # representação no padrão VTK do retangulo ortogonal linear
+        self.vtkcelltype = 9
+
+        # diagonal do elemento 0-2
+        #  3---2
+        #  |   |
+        #  0---1
+
+        self.a, self.b = abs(self.xe[2] - self.xe[0])
+
+        self.Ae = self.a*self.b
+
+        Elemento.__init2__(self)
+
+
+    def Ne(self, x, y):
+        a = self.a
+        b = self.b
+        ab = self.Ae
+
+        N1 = (x*b - x*y)/ab
+        N2 = (x*y)/ab
+        N3 = (y*a - x*y)/ab
+        N4 = 1-(x*b + y*a - x*y)/ab
+        return np.array([[N1, 0, N2, 0, N3, 0, N4, 0],
+                         [0, N1, 0, N2, 0, N3, 0, N4]], dtype='float32')
+
+
+    def Be(self, x, y):
+        a = self.a
+        b = self.b
+        ab = self.Ae
+
+        return np.array(
+			  [[1/a-y/ab, 0       , y/ab, 0   , -y/ab   , 0       , y/ab-1/a, 0],
+               [0       , -x/ab   , 0   , x/ab, 0       , 1/b-x/ab, 0       , x/ab-1/b],
+               [-x/ab   , 1/a-y/ab, x/ab, y/ab, 1/b-x/ab, -y/ab   , x/ab-1/b, y/ab-1/a]]
+			  , dtype='float32')
+
+
+    def Ke(self):
+        BtDB = lambda x, y: self.Be(x, y).transpose() @ self.D @ self.Be(x, y)
+
+        intBDB = gauss2dn(BtDB, 4, 0, self.a, 0, self.b)
+
+        return (self.mat.t if self.mat.EPT else 1)*intBDB
+
+
+class QUAD4(Elemento):
+    def __init__(self, i, mat, nos):
+        """
+        Define um elemento quadrado linear de 4 nós.
+
+        Args:
+            i (int): id do elemento.
+            mat (Material): Material do elemento.
+            nos (Nodes[4]): Lista com os nós do elemento.
+
+        """
+        # inicializa o elemento genérico
+        Elemento.__init__(self, i, mat, nos)
+
+        # representação no padrão VTK do quadrado linear
+        self.vtkcelltype = 9
+
+        Elemento.__init2__(self)
+
+
+    def Ne(self, xi, yi):
+        N = [(1+xi)*(1-yi)/4, (1+xi)*(1+yi)/4, (1-xi)*(1+yi)/4, (1-xi)*(1-yi)/4]
+        return np.array([[N[0], 0, N[1], 0, N[2], 0, N[3], 0],
+                         [0, N[0], 0, N[1], 0, N[2], 0, N[3]]], dtype='float32')
+
+    def J(self, xi, yi):
+
+        return np.array([[ 1-yi, 1+yi, -1-yi, -1+yi],
+                         [-1-xi, 1+xi,  1-xi, -1+xi]], dtype='float32') @ self.xe().reshape(-1, 2) / 4
+
+    def Be(self, x, y):
+        a = self.a
+        b = self.b
+        ab = self.Ae
+
+        return np.array(
+			  [[1/a-y/ab, 0       , y/ab, 0   , -y/ab   , 0       , y/ab-1/a, 0],
+               [0       , -x/ab   , 0   , x/ab, 0       , 1/b-x/ab, 0       , x/ab-1/b],
+               [-x/ab   , 1/a-y/ab, x/ab, y/ab, 1/b-x/ab, -y/ab   , x/ab-1/b, y/ab-1/a]]
+			  , dtype='float32')
+
+
+    def Ke(self):
+        BtDB = lambda x, y: self.Be(x, y).transpose() @ self.D @ self.Be(x, y) * self.detJ(x, y)
+
+        intBDB = gauss2d2(BtDB, -1, 1, -1, 1,)
+
+        return (self.mat.t if self.mat.EPT else 1)*intBDB
