@@ -8,7 +8,3 @@ Exporta os resultados no formato VTK Legacy, suporta os campos de deslocamentos,
 ![Malha de Exemplo](imgs/malha.png)
 
 ![Campo de Deslocamentos](imgs/desloc.png)
-
-Teste inicial da aplicação incremental de cargas
-
-![Aplicação Incremental](imgs/desloc_anim.gif)

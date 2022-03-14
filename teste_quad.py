@@ -1,6 +1,8 @@
 import time
 import pyFEM
 
+from pyFEM.elementos import ORTH4
+
 # inicia contagem do tempo
 start_time = time.time()
 
@@ -9,7 +11,7 @@ mesh = pyFEM.pre.Malha("malha_quad.msh")
 
 # define e aplica o material
 mat = pyFEM.materiais.Material(2e+7, 0.3, 0.1)
-mesh.defineElementos(mat, {'quad': pyFEM.elementos.ORTH4})
+mesh.defineElementos(mat, {'quad': ORTH4})
 #mesh.defineElementos(mat)
 
 # aplica os apoios
@@ -30,6 +32,10 @@ solv.exportar("malha_quad")
 # tempo de processamento
 elapsed_time = time.time() - start_time
 
-# deslocamento vertical do nó inferior da extreminde livre (Nó #1)
+# deslocamento vertical do nó inferior da extremidade livre (Nó #1)
 umx = solv.U[1*2+1]*1000
-print("%5i elementos | %5i nós | %7.3f seg | u = %.3f mm\n" % (len(mesh.nodes), len(mesh.elementos), elapsed_time, umx))
+
+# deslocamento teórico
+umt = -1000*100*8**4/(8*2e+7/15)
+
+print("%5i elementos | %5i nós | %7.3f seg \n u = %.3f mm | ut = %.1f mm\n" % (len(mesh.nodes), len(mesh.elementos), elapsed_time, umx, umt))

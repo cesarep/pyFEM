@@ -15,12 +15,12 @@ import numpy as np
 class Material:
     def __init__(self, E, nu, t):
         """
-        Define um material elastico-linear homogeneo.
+        Define um material elastico-linear homogêneo.
 
         Args:
             E (float): Módulo de Elasticidade.
             nu (float): Coeficiente de Poisson.
-            t (float): Espessura, caso esteja no Estado Plano de Tensoes, ou
+            t (float): Espessura, caso esteja no Estado Plano de Tensões, ou
                        nulo para considerar Estado Plano de Deformações
 
         Returns:
@@ -52,7 +52,7 @@ class Material:
         E = self.E
         nu = self.nu
         if(self.EPT):
-            return (E/(1-nu**2))*np.array(
+            return (E/(1-nu*nu))*np.array(
                 [[ 1,nu, 0],
                  [nu, 1, 0],
                  [ 0, 0, (1-nu)/2]]

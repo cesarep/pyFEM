@@ -78,88 +78,8 @@ class Solver:
         self.mesh.celldata['stress'] = np.zeros((len(self.mesh.elementos), 3))
 
         # itera pelos elementos calculando as tensões
-        for elem in self.mesh.elementos:
-            self.mesh.celldata['stress'][elem.id] = elem.Se()
-
-
-    def calcularInc(self, npassos, filename):
-        """
-        Calcula o sistema de maneira incremental, aplicando a carga linearmente
-        em npassos vezes, e exporta os resultados de cada passo
-
-        Args:
-            npassos (int): numero de passos de incremento de carga.
-            filename(string): nome do arquivo a ser exportado.
-
-        """
-
-        self.passos = npassos
-        # 2 graus de liberdade por nó
-        self.ngl = len(self.mesh.nodes)*2
-
-        # prepara os incrementos nos nos e separa os graus de liberdade Fixos e Livres
-        glF = []
-        glL = []
-        for no in self.mesh.nodes:
-                no.du = np.zeros((npassos, 2))
-                glF += [2*no.id + i for i in range(0,2) if no.apoio[i]]
-                glL += [2*no.id + i for i in range(0,2) if not no.apoio[i]]
-
-        self.glF = glF
-        self.glL = glL
-
-
-        self.U = np.zeros((self.ngl), dtype='float32')
-
-        for n in range(0, npassos):
-            # prepara a matriz de rigidez global
-            self.Kg = lil_matrix((self.ngl, self.ngl), dtype='float32') # matriz esparsa
-            self.dF = np.zeros((self.ngl), dtype='float32')
-            self.dU = np.zeros((self.ngl), dtype='float32')
-
-            # itera por cada elemento
-            for elem in self.mesh.elementos:
-                # soma sua parcela de rigidez incremental
-                self.Kg[np.ix_(elem.gls, elem.gls)] += elem.K_inc(n)
-
-
-            # aplica os incrementos de força dos nós
-            for no in self.mesh.nodes:
-                self.dF[2*no.id:2*no.id+2] = no.forcas*(n+1)/npassos
-
-            # Separando as submatrizes
-            KFL = self.Kg[np.ix_(glF, glL)]
-            KLL = self.Kg[np.ix_(glL, glL)].tocsr()
-
-
-            dFL = self.dF[np.ix_(glL)]
-
-            # calcula os deslocamentos livres
-            self.dU[np.ix_(glL)] = linalg.spsolve(KLL, dFL)
-
-            # calcula as reações de apoio
-            self.dF[np.ix_(glF)] = KFL @ self.dU[np.ix_(glL)] - self.dF[np.ix_(glF)]
-
-            # aplica os resultados nos dicionarios de dados para exportaçao
-            self.mesh.pointdata['deslocamento'] = self.dU.reshape(-1, 2)
-            self.mesh.pointdata['forcas'] = self.dF.reshape(-1, 2)
-
-            # repassa os deslocamentos calculados para cada nó para calculo dos ue's
-            for no in self.mesh.nodes:
-                no.du[n] = self.dU[2*no.id:2*no.id+2]
-                no.u += no.du[n]
-
-            self.U += self.dU
-
-            # prepara o campo de tensões
-            self.mesh.celldata['stress'] = np.zeros((len(self.mesh.elementos), 3))
-
-            # itera pelos elementos calculando as tensões
-            for elem in self.mesh.elementos:
-                self.mesh.celldata['stress'][elem.id] = elem.Se()
-
-            self.exportar(filename+".%i"%n)
-
+        #for elem in self.mesh.elementos:
+            #self.mesh.celldata['stress'][elem.id] = elem.Se()
 
 
     def exportar(self, filename):
@@ -227,3 +147,23 @@ class Solver:
                         np.savetxt(f, np.pad(val, ((0,0),(0,1))))
                     else:
                         np.savetxt(f, val)
+
+class ManualSolver(Solver):
+    def __init__(self, nos, elems):
+        """
+        Inicializa o Solver com nós e elementos manualmente definidos
+
+        Args:
+            nos (Node[]): Vetor de nós.
+            elems (Elemento[]): Vetor de Elementos.
+
+        """
+        self.mesh = lambda: None
+        self.mesh.nodes = nos
+
+        self.mesh.points = np.array([[*no.coord, 0] for no in nos])
+
+        self.mesh.elementos = elems
+
+        self.mesh.pointdata = {}
+        self.mesh.celldata = {}

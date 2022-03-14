@@ -101,13 +101,21 @@ class Elemento:
         if self.vtkcelltype is None:
             raise NotImplementedError("Tipo de célula VTK não definida")
         self.K = self.Ke()
+
         if self.Ae is None:
-            raise NotImplementedError("Àrea da célula não definida")
+            # Fórmula de área
+            # x1  x2  x3 ... xn
+			# y1  y2  y3 ... yn
+			# A = 1/2 * [ (x1*y2 - x2*y1) + (x2*y3 - x3*y2) + ... + (xn*y1 - x1*yn) ]
+            x = self.xe[0]
+            y = self.xe[1]
+            self.Ae = (x @ np.roll(y, -1) - np.roll(x, -1) @ y)/2
+            #raise NotImplementedError("Área da célula não definida")
 
 
     def ue(self):
         """
-        Retonar os deslocamentos nodais do elemento [u1, v1, u2, v2, ...]
+        Retornar os deslocamentos nodais do elemento [u1, v1, u2, v2, ...]
 
         Returns:
             float[]: vetor de deslocamentos nodais.
@@ -116,7 +124,7 @@ class Elemento:
         return np.array([no.u[i] for no in self.nos for i in range(0,2)])
 
 
-    def xe(self):
+    def xe2(self):
         """
         Retonar as coordenadas nodais do elemento [x1, y1, x2, y2, ...]
 
@@ -141,7 +149,7 @@ class Elemento:
         return self.mat.De(**kwargs)
 
 
-    def J(self, xi = 0, yi = 0):
+    def Ji(self, xi = 0, yi = 0):
         """
         Definição genérica da matriz Jacobiana
 
@@ -155,7 +163,7 @@ class Elemento:
         return np.diag((1,1))
 
 
-    def detJ(self, xi = 0, yi = 0):
+    def detJi(self, xi = 0, yi = 0):
         """
         Determinante Jacobiano
 
@@ -166,10 +174,10 @@ class Elemento:
             float: Determinante da Matriz Jacobiana.
 
         """
-        J = self.J(xi,yi)
+        J = self.Ji(xi,yi)
         return J[0,0]*J[1,1] - J[0,1]*J[1,0]
 
-    def invJ(self, xi = 0, yi = 0):
+    def invJi(self, xi = 0, yi = 0):
         """
         Inversa da matriz Jacobiana
 
@@ -180,11 +188,20 @@ class Elemento:
             float[][]: Matriz Jacobiana invertida.
 
         """
-        J = self.J(xi,yi)
-        return np.array([[J[1,1], -J[0,1]], [-J[1, 0], J[0, 0]]])/self.detJ(xi, yi)
+        J = self.Ji(xi,yi)
+        return np.array([[J[1,1], -J[0,1]], [-J[1, 0], J[0, 0]]])/self.detJi(xi, yi)
 
+    def Ne(self, x = 0, y = 0):
+        """
+        Definição genérica de um vetor de funções interpoladores.
 
-    def Ne(self, xi = 0, yi = 0):
+        Args:
+            x, y (float): coordenadas globais x e y.
+
+        """
+        raise NotImplementedError("Função Interpoladora global não definida")
+
+    def Ni(self, xi = 0, yi = 0):
         """
         Definição genérica de um vetor de funções interpoladores.
 
@@ -192,10 +209,33 @@ class Elemento:
             xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
 
         """
-        raise NotImplementedError("Função Interpoladora não definida")
+        raise NotImplementedError("Função Interpoladora local não definida")
 
+    def __localParaGlobal(self, xi, yi):
+        """
+        Converte coordenadas locais para globais.
 
-    def Be(self, xi = 0, yi = 0):
+        Args:
+            xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
+
+        Returns:
+            float[2]: Vetor de coordenadas globais [x, y].
+
+        """
+
+        return self.Ni(xi, yi) @ self.xe2()
+
+    def Be(self, x = 0, y = 0):
+        """
+        Definição genérica da matriz de derivadas das funções interpoladores
+
+        Args:
+            x, y (float): coordenadas globais x e y.
+
+        """
+        raise NotImplementedError("Matriz de derivadas globais não definida")
+
+    def Bi(self, xi = 0, yi = 0):
         """
         Definição genérica da matriz de derivadas das funções interpoladores
 
@@ -203,7 +243,7 @@ class Elemento:
             xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
 
         """
-        raise NotImplementedError("Matriz de derivadas não definida")
+        raise NotImplementedError("Matriz de derivadas locais não definida")
 
 
     def Ke(self):
@@ -224,7 +264,7 @@ class Elemento:
         raise NotImplementedError("Matriz de rigidez incremental não definida")
 
 
-    def Se(self, xi = 0, yi = 0):
+    def Si(self, xi = 0, yi = 0):
         """
         Definição genérica do vetor de tensões.
 
@@ -232,8 +272,17 @@ class Elemento:
             xi, yi (float): coordenadas locais ξ e η ∈ [-1,1].
 
         """
-        return self.D @ self.Be(xi, yi) @ self.ue()
+        return self.D @ self.Bi(xi, yi) @ self.ue()
 
+    def Se(self, x = 0, y = 0):
+        """
+        Definição genérica do vetor de tensões.
+
+        Args:
+            x, y (float): coordenadas globais.
+
+        """
+        return self.D @ self.Be(x, y) @ self.ue()
 
 
 class CST(Elemento):
@@ -319,10 +368,11 @@ class ORTH4(Elemento):
         # representação no padrão VTK do retangulo ortogonal linear
         self.vtkcelltype = 9
 
-        # diagonal do elemento 0-2
+        # projeções da diagonal do elemento 0-2
         #  3---2
-        #  |   |
+        #  | / | b
         #  0---1
+        #    a
 
         self.a, self.b = abs(self.xe[2] - self.xe[0])
 
@@ -349,17 +399,34 @@ class ORTH4(Elemento):
         b = self.b
         ab = self.Ae
 
-        return np.array(
-			  [[1/a-y/ab, 0       , y/ab, 0   , -y/ab   , 0       , y/ab-1/a, 0],
-               [0       , -x/ab   , 0   , x/ab, 0       , 1/b-x/ab, 0       , x/ab-1/b],
-               [-x/ab   , 1/a-y/ab, x/ab, y/ab, 1/b-x/ab, -y/ab   , x/ab-1/b, y/ab-1/a]]
+        return (1/ab) * np.array(
+			  [[b-y,  0 , y , 0 , -y ,  0 , y-b,  0 ],
+               [ 0 , -x , 0 , x ,  0 , a-x,  0 , x-a],
+               [ -x, b-y, x , y , a-x, -y , x-a, y-b]]
 			  , dtype='float32')
 
 
     def Ke(self):
+        """
         BtDB = lambda x, y: self.Be(x, y).transpose() @ self.D @ self.Be(x, y)
 
-        intBDB = gauss2dn(BtDB, 4, 0, self.a, 0, self.b)
+        intBDB = gauss2dn(BtDB, 2, 0, self.a, 0, self.b)
+        """
+        v = self.nu
+
+        a = self.a
+        b = self.b
+
+        intBDB = (self.E/(1-v*v))*np.array(
+            [[-(a*a*v-2*b*b-a*a)/(6*a*b),	-(v+1)/8,	(a*a*v+b*b-a*a)/(6*a*b),	(3*v-1)/8,	(a*a*v-2*b*b-a*a)/(12*a*b),	(v+1)/8,	-(a*a*v+4*b*b-a*a)/(12*a*b),	-(3*v-1)/8],
+            [-(v+1)/8,	-(b*b*v-b*b-2*a*a)/(6*a*b),	-(3*v-1)/8,	-(b*b*v-b*b+4*a*a)/(12*a*b),	(v+1)/8,	(b*b*v-b*b-2*a*a)/(12*a*b),	(3*v-1)/8,	(b*b*v-b*b+a*a)/(6*a*b)],
+            [(a*a*v+b*b-a*a)/(6*a*b),	-(3*v-1)/8,	-(a*a*v-2*b*b-a*a)/(6*a*b),	(v+1)/8,	-(a*a*v+4*b*b-a*a)/(12*a*b),	(3*v-1)/8,	(a*a*v-2*b*b-a*a)/(12*a*b),	-(v+1)/8],
+            [(3*v-1)/8,	-(b*b*v-b*b+4*a*a)/(12*a*b),	(v+1)/8,	-(b*b*v-b*b-2*a*a)/(6*a*b),	-(3*v-1)/8,	(b*b*v-b*b+a*a)/(6*a*b),	-(v+1)/8,	(b*b*v-b*b-2*a*a)/(12*a*b)],
+            [(a*a*v-2*b*b-a*a)/(12*a*b),	(v+1)/8,	-(a*a*v+4*b*b-a*a)/(12*a*b),	-(3*v-1)/8,	-(a*a*v-2*b*b-a*a)/(6*a*b),	-(v+1)/8,	(a*a*v+b*b-a*a)/(6*a*b),	(3*v-1)/8],
+            [(v+1)/8,	(b*b*v-b*b-2*a*a)/(12*a*b),	(3*v-1)/8,	(b*b*v-b*b+a*a)/(6*a*b),	-(v+1)/8,	-(b*b*v-b*b-2*a*a)/(6*a*b),	-(3*v-1)/8,	-(b*b*v-b*b+4*a*a)/(12*a*b)],
+            [-(a*a*v+4*b*b-a*a)/(12*a*b),	(3*v-1)/8,	(a*a*v-2*b*b-a*a)/(12*a*b),	-(v+1)/8,	(a*a*v+b*b-a*a)/(6*a*b),	-(3*v-1)/8,	-(a*a*v-2*b*b-a*a)/(6*a*b),	(v+1)/8],
+            [-(3*v-1)/8,	(b*b*v-b*b+a*a)/(6*a*b),	-(v+1)/8,	(b*b*v-b*b-2*a*a)/(12*a*b),	(3*v-1)/8,	-(b*b*v-b*b+4*a*a)/(12*a*b),	(v+1)/8,	-(b*b*v-b*b-2*a*a)/(6*a*b)]]
+            , dtype='float32')
 
         return (self.mat.t if self.mat.EPT else 1)*intBDB
 
@@ -389,26 +456,24 @@ class QUAD4(Elemento):
         return np.array([[N[0], 0, N[1], 0, N[2], 0, N[3], 0],
                          [0, N[0], 0, N[1], 0, N[2], 0, N[3]]], dtype='float32')
 
-    def J(self, xi, yi):
+    def Ji(self, xi, yi):
+        return (1/4) * np.array([[ 1-yi, 1+yi, -1-yi, -1+yi],
+                                 [-1-xi, 1+xi,  1-xi, -1+xi]], dtype='float32') @ self.xe
 
-        return np.array([[ 1-yi, 1+yi, -1-yi, -1+yi],
-                         [-1-xi, 1+xi,  1-xi, -1+xi]], dtype='float32') @ self.xe().reshape(-1, 2) / 4
-
-    def Be(self, x, y):
-        a = self.a
-        b = self.b
-        ab = self.Ae
+    def Bi(self, xi, yi):
+        B = self.invJi(xi, yi) @ np.array([[ 1-yi, 1+yi, -1-yi, -1+yi],
+                                           [-1-xi, 1+xi,  1-xi, -1+xi]], dtype='float32')
 
         return np.array(
-			  [[1/a-y/ab, 0       , y/ab, 0   , -y/ab   , 0       , y/ab-1/a, 0],
-               [0       , -x/ab   , 0   , x/ab, 0       , 1/b-x/ab, 0       , x/ab-1/b],
-               [-x/ab   , 1/a-y/ab, x/ab, y/ab, 1/b-x/ab, -y/ab   , x/ab-1/b, y/ab-1/a]]
+			  [[ B[0,0],   0   , B[0,1],   0   , B[0,2],   0   , B[0,3],   0    ],
+               [   0   , B[1,0],   0   , B[1,1],   0   , B[1,2],   0   , B[1,3] ],
+               [ B[1,0], B[0,0], B[1,1], B[0,1], B[1,2], B[0,2], B[1,3], B[0,3] ]]
 			  , dtype='float32')
 
 
     def Ke(self):
-        BtDB = lambda x, y: self.Be(x, y).transpose() @ self.D @ self.Be(x, y) * self.detJ(x, y)
+        BtDB = lambda xi, yi: self.Bi(xi, yi).transpose() @ self.D @ self.Bi(xi, yi) * self.detJi(xi, yi)
 
-        intBDB = gauss2d2(BtDB, -1, 1, -1, 1,)
+        intBDB = gauss2d2(BtDB)
 
         return (self.mat.t if self.mat.EPT else 1)*intBDB

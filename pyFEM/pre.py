@@ -12,7 +12,7 @@ Inclui da definição da malha, importação do gmsh e condições de contorno.
 
 import numpy as np
 import meshio
-import gmsh
+#import gmsh
 from .elementos import *
 
 ##### MALHADOR
@@ -32,7 +32,7 @@ class Malha:
         self.points = []
         self.elementos = []
 
-        ### teste utilzando API própria do GMSH
+        ### teste utilizando API própria do GMSH
         #gmsh.initialize()
         #gmsh.open(filename)
         #self.model = gmsh.model
